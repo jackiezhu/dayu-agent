@@ -33,6 +33,7 @@ from dayu.services.contracts import (
     ChatResumeRequest,
     ChatTurnRequest,
     ChatTurnSubmission,
+    SceneModelConfig,
     PromptRequest,
     PromptSubmission,
     SessionResolutionPolicy,
@@ -310,6 +311,30 @@ def test_interactive_command_rejects_non_interactive_session(tmp_path: Path) -> 
 
 
 @pytest.mark.unit
+def test_interactive_command_rejects_invalid_session_source_value(tmp_path: Path) -> None:
+    """验证 interactive 命令会拒绝非法 session source 字符串。"""
+
+    workspace = _build_workspace(tmp_path)
+    session = SessionAdminView(
+        session_id="interactive_existing",
+        source="invalid-source",
+        state="active",
+        scene_name="interactive",
+        created_at="2026-04-21T00:00:00+00:00",
+        last_activity_at="2026-04-21T00:00:00+00:00",
+    )
+    host_admin_service = SimpleNamespace(get_session=lambda _session_id: session)
+
+    resolved = interactive_command_module._resolve_interactive_session_id_from_args(
+        Namespace(session_id="interactive_existing", new_session=False),
+        workspace_dir=workspace,
+        host_admin_service=cast(Any, host_admin_service),
+    )
+
+    assert resolved is None
+
+
+@pytest.mark.unit
 def test_interactive_command_prints_restore_context_for_explicit_session(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -364,7 +389,12 @@ def test_interactive_command_prints_restore_context_for_explicit_session(
         lambda **_kwargs: (
             None,
             None,
-            SimpleNamespace(resolve_scene_model=lambda *_args: {"name": "test-model"}),
+            SimpleNamespace(
+                resolve_scene_model=lambda *_args: SceneModelConfig(
+                    name="test-model",
+                    temperature=0.0,
+                )
+            ),
             object(),
             None,
         ),
@@ -574,20 +604,6 @@ def _build_event_session(*event_sequences: list[StreamEvent], fail_with: Excepti
             for event in event_sequences[index]:
                 yield event
 
-        async def stream(self, request: PromptRequest) -> AsyncIterator[StreamEvent]:
-            """返回单轮 prompt 预置事件流。"""
-
-            request_log.append(request)
-            async for event in self._yield_events(request.user_text):
-                yield event
-
-        async def stream_turn(self, request: ChatTurnRequest) -> AsyncIterator[StreamEvent]:
-            """返回聊天轮次预置事件流。"""
-
-            request_log.append(request)
-            async for event in self._yield_events(request.user_text):
-                yield event
-
         async def submit(self, request: PromptRequest) -> PromptSubmission:
             """按 PromptServiceProtocol 返回提交结果。"""
 
@@ -668,11 +684,6 @@ def test_run_chat_turn_stream_uses_submit_turn_protocol_only(monkeypatch: pytest
 
             raise AssertionError(f"unexpected resume_pending_turn call: {request}")
 
-        async def stream_turn(self, request: ChatTurnRequest) -> AsyncIterator[StreamEvent]:
-            """旧兼容接口不应被 interactive 使用。"""
-
-            raise AssertionError(f"unexpected stream_turn call: {request}")
-
     monkeypatch.setattr(
         app_interactive,
         "_SpinnerController",
@@ -711,11 +722,6 @@ def test_run_prompt_stream_uses_submit_protocol_only(monkeypatch: pytest.MonkeyP
                 session_id=request.session_id or "prompt-session",
                 event_stream=_stream(),
             )
-
-        async def stream(self, request: PromptRequest) -> AsyncIterator[StreamEvent]:
-            """旧兼容接口不应被 interactive 使用。"""
-
-            raise AssertionError(f"unexpected stream call: {request}")
 
     monkeypatch.setattr(
         app_interactive,

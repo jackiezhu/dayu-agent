@@ -11,6 +11,7 @@ from typing import Any, AsyncIterator, Callable, TypeVar, cast
 from dayu.contracts.agent_execution import ExecutionContract, deserialize_execution_contract_snapshot
 from dayu.contracts.events import AppEvent, AppResult
 from dayu.contracts.events import PublishedRunEventProtocol
+from dayu.contracts.execution_metadata import ExecutionDeliveryContext
 from dayu.contracts.infrastructure import ModelCatalogProtocol, WorkspaceResourcesProtocol
 from dayu.contracts.reply_outbox import ReplyOutboxRecord, ReplyOutboxState, ReplyOutboxSubmitRequest
 from dayu.contracts.run import RunCancelReason, RunRecord, RunState
@@ -260,7 +261,7 @@ class Host:
         *,
         session_id: str | None = None,
         scene_name: str | None = None,
-        metadata: dict[str, Any] | None = None,
+        metadata: ExecutionDeliveryContext | None = None,
     ) -> SessionRecord:
         """创建新的 Host Session。
 
@@ -268,7 +269,7 @@ class Host:
             source: 会话来源。
             session_id: 可选显式 session_id。
             scene_name: 首次使用的 scene。
-            metadata: 附加元数据。
+            metadata: 会话级交付上下文元数据。
 
         Returns:
             新建 SessionRecord。
@@ -295,7 +296,7 @@ class Host:
         source: SessionSource,
         *,
         scene_name: str | None = None,
-        metadata: dict[str, Any] | None = None,
+        metadata: ExecutionDeliveryContext | None = None,
     ) -> SessionRecord:
         """幂等获取或创建 Host Session。
 
@@ -303,7 +304,7 @@ class Host:
             session_id: 确定性会话 ID。
             source: 会话来源。
             scene_name: 首次使用的 scene。
-            metadata: 附加元数据。
+            metadata: 会话级交付上下文元数据。
 
         Returns:
             现有或新建 SessionRecord。
@@ -359,11 +360,15 @@ class Host:
         self,
         *,
         state: SessionState | None = None,
+        source: SessionSource | None = None,
+        scene_name: str | None = None,
     ) -> list[SessionRecord]:
         """列出 Host Session。
 
         Args:
             state: 可选状态过滤。
+            source: 可选来源过滤。
+            scene_name: 可选 scene 名称过滤。
 
         Returns:
             匹配的 SessionRecord 列表。
@@ -372,7 +377,11 @@ class Host:
             无。
         """
 
-        return self._session_registry.list_sessions(state=state)
+        return self._session_registry.list_sessions(
+            state=state,
+            source=source,
+            scene_name=scene_name,
+        )
 
     def get_conversation_session_digest(self, session_id: str) -> ConversationSessionDigest:
         """读取指定 session 的 conversation 摘要。
